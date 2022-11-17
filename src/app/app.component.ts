@@ -4,8 +4,8 @@ import { CdkDragDrop, transferArrayItem } from '@angular/cdk/drag-drop';
 import { MatDialog } from '@angular/material/dialog';
 import { TaskDialogComponent } from './task-dialog/task-dialog.component';
 import { TaskDialogResult } from './task-dialog/task-dialog.component';
-import { AngularFirestore } from '@angular/fire/compat/firestore';
 import { Observable } from 'rxjs';
+import { Firestore, collection, doc, addDoc, deleteDoc, setDoc, collectionData, runTransaction } from '@angular/fire/firestore';
 
 
 @Component({
@@ -15,7 +15,7 @@ import { Observable } from 'rxjs';
 })
 export class AppComponent {
 
-  constructor(private dialog: MatDialog, private readonly db: AngularFirestore) { }
+  constructor(private dialog: MatDialog, private readonly db: Firestore) { }
 
   newTask(): void {
     const dialogRef = this.dialog.open(TaskDialogComponent, {
@@ -30,13 +30,21 @@ export class AppComponent {
         if (!result) {
           return;
         }
-        this.db.collection('todo').add(result.task);
+        const todoRef = collection(this.db, 'todo');
+        addDoc(todoRef, result.task)
+        // this.db.collection('todo').add(result.task);
       });
   }
 
-  todo = this.db.collection('todo').valueChanges({ idField: 'id' }) as Observable<Task[]>;
-  inProgress = this.db.collection('inProgress').valueChanges({ idField: 'id' }) as Observable<Task[]>;
-  done = this.db.collection('done').valueChanges({ idField: 'id' }) as Observable<Task[]>;
+
+  todoRef = collection(this.db, 'todo');
+  todo = collectionData(this.todoRef, { idField: 'id' }) as Observable<Task[]>;
+
+  inProgressRef = collection(this.db, 'inProgress');
+  inProgress = collectionData(this.inProgressRef, { idField: 'id' }) as Observable<Task[]>;
+
+  doneRef = collection(this.db, 'done');
+  done = collectionData(this.doneRef, { idField: 'id' }) as Observable<Task[]>;
 
   drop(event: CdkDragDrop<Task[] | null>): void {
     if (event.previousContainer === event.container) {
@@ -46,10 +54,14 @@ export class AppComponent {
       return;
     }
     const item = event.previousContainer.data[event.previousIndex];
-    this.db.firestore.runTransaction(() => {
+
+    const previousTaskRef = doc(this.db, `${event.previousContainer.id}/${item.id}`);
+    const currentTaskRef = collection(this.db, event.container.id);
+
+    runTransaction(this.db, () => {
       const promise = Promise.all([
-        this.db.collection(event.previousContainer.id).doc(item.id).delete(),
-        this.db.collection(event.container.id).add(item),
+        deleteDoc(previousTaskRef),
+        addDoc(currentTaskRef, item),
       ]);
       return promise;
     });
@@ -74,9 +86,11 @@ export class AppComponent {
         return;
       }
       if (result.delete) {
-        this.db.collection(list).doc(task.id).delete();
+        const taskRef = doc(this.db, `${list}/${task.id}`);
+        deleteDoc(taskRef);
       } else {
-        this.db.collection(list).doc(task.id).update(task);
+        const taskRef = doc(this.db, `${list}/${task.id}`);
+        setDoc(taskRef, task);
       }
     });
   }
